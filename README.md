@@ -30,6 +30,8 @@
 
 ## Setup
 
+> Using an AI coding agent (Claude Code, Cursor, Copilot, Codex)? Point it at [SKILL.md](./SKILL.md) and it can install and configure Airpoint for you interactively.
+
 **1. Install the package.**
 
 ```bash
@@ -218,8 +220,6 @@ Stable v0 surface — won't break in patch/minor releases:
 | `validateAirpointSdkAssets(assets, profile)`    | Verifies assets are reachable.                                          |
 
 Types: `AirpointPlugin`, `AirpointPluginManifest`, `AirpointHostAdapter`, `AirpointIntent`.
-
-`@airpoint/sdk/internal` is unstable on purpose. Don't import from it unless you're prepared to track changes.
 
 ## About AirMouse
 
