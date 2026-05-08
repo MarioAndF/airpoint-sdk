@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Airpoint Basic Example</title>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="stage" aria-label="Airpoint demo stage">
+        <video id="airpoint-video" class="camera" playsinline muted></video>
+        <div id="cursor" class="cursor" aria-hidden="true"></div>
+        <button id="target" class="target" type="button">Select Target</button>
+      </section>
+      <aside class="panel">
+        <h1>Airpoint Basic Example</h1>
+        <p id="status">Ready.</p>
+        <button id="start" type="button">Start Tracking</button>
+        <button id="stop" type="button">Stop Tracking</button>
+        <pre id="log"></pre>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.pack/
+coverage/
+*.tsbuildinfo
+examples/*/dist/
+examples/*/node_modules/
+examples/*/public/airpoint/

@@ -1,0 +1,19 @@
+{
+  "name": "@airpoint/basic-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "assets:sync": "pnpm exec airpoint-sdk-copy-assets --out public --base airpoint",
+    "build": "pnpm run assets:sync && tsc && vite build",
+    "dev": "pnpm run assets:sync && vite --host 0.0.0.0",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@airpoint/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1"
+  }
+}
