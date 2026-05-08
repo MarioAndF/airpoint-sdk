@@ -1,5 +1,5 @@
 {
-  "name": "@airpoint/sdk",
+  "name": "airpoint-sdk",
   "version": "0.1.0",
   "description": "Browser-first Airpoint plugin runtime for touchless computing",
   "license": "Apache-2.0",
@@ -44,7 +44,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc && node scripts/fix-dist-esm-imports.mjs dist",
     "copy-assets": "node scripts/copy-assets.mjs",
-    "dev:example": "pnpm --filter @airpoint/basic-example dev",
+    "dev:example": "pnpm --filter airpoint-basic-example dev",
     "pack:local": "pnpm pack --pack-destination .pack",
     "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build",
     "test": "vitest run",

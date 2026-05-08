@@ -4,8 +4,8 @@
 
 **Touchless hand control for the web.** Add it to any web app and let users move a cursor, click, and trigger custom intents with their hand — just a webcam, no extra hardware.
 
-[![npm](https://img.shields.io/npm/v/@airpoint/sdk.svg)](https://www.npmjs.com/package/@airpoint/sdk)
-[![license](https://img.shields.io/npm/l/@airpoint/sdk.svg)](./LICENSE)
+[![npm](https://img.shields.io/npm/v/airpoint-sdk.svg)](https://www.npmjs.com/package/airpoint-sdk)
+[![license](https://img.shields.io/npm/l/airpoint-sdk.svg)](./LICENSE)
 
 </div>
 
@@ -35,8 +35,8 @@
 **1. Install the package.**
 
 ```bash
-npm install @airpoint/sdk
-# or: pnpm add @airpoint/sdk · yarn add @airpoint/sdk · bun add @airpoint/sdk
+npm install airpoint-sdk
+# or: pnpm add airpoint-sdk · yarn add airpoint-sdk · bun add airpoint-sdk
 ```
 
 **2. Copy the runtime assets into your public directory.**
@@ -69,7 +69,7 @@ import {
   createAirpointPlugin,
   createAirpointCursorOverlay,
   createAirpointDomAdapter,
-} from "@airpoint/sdk";
+} from "airpoint-sdk";
 
 const video = document.querySelector("video")!;
 const cursor = createAirpointCursorOverlay({ style: "arrow" });

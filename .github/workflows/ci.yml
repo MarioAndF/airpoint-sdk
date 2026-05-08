@@ -21,5 +21,5 @@ jobs:
             - run: pnpm typecheck
             - run: pnpm test
             - run: pnpm build
-            - run: pnpm --filter @airpoint/basic-example build
+            - run: pnpm --filter airpoint-basic-example build
             - run: pnpm pack --pack-destination .pack

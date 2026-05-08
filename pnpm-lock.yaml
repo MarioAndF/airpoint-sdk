@@ -30,7 +30,7 @@ importers:
 
   examples/basic:
     dependencies:
-      '@airpoint/sdk':
+      airpoint-sdk:
         specifier: workspace:*
         version: link:../..
     devDependencies:

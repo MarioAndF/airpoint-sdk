@@ -5,7 +5,7 @@ import {
   createAirpointSvgIconElement,
   type AirpointPlugin,
   type AirpointPluginManifest,
-} from "@airpoint/sdk";
+} from "airpoint-sdk";
 import "./styles.css";
 
 function getElement<T extends Element>(selector: string): T {
