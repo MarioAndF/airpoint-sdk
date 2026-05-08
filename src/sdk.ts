@@ -71,7 +71,11 @@ export type RawFrameInput = {
 };
 
 export type AirpointSDK = {
+  /** Prepare premium assets and gesture engine without opening the camera. */
+  prepare(): Promise<void>;
   start(): Promise<void>;
+  /** Pause frame processing without unloading models, trackers, or prepared premium assets. */
+  pause(): void;
   stop(): void;
   /** Open the camera using global config (aspect ratio, quality, frameRate, deviceId) and attach to a video element. */
   startCamera(
@@ -98,6 +102,8 @@ type MediaPipeLikeResult = {
 };
 
 const AIRPOINT_LICENSE_SERVER_URL = "https://license.airpoint.app";
+const LICENSE_FETCH_TIMEOUT_MS = 15_000;
+const VIDEO_PLAY_TIMEOUT_MS = 10_000;
 
 interface PremiumServerResponse {
   bundleId: string;
@@ -117,6 +123,11 @@ async function fetchAndPreparePremiumAssets(
   const url = `${baseUrl}/api/license/premium-airmouse`;
 
   let response: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    LICENSE_FETCH_TIMEOUT_MS,
+  );
   try {
     response = await fetch(url, {
       method: "POST",
@@ -125,10 +136,16 @@ async function fetchAndPreparePremiumAssets(
         "content-type": "application/json",
       },
       cache: "no-store",
+      signal: controller.signal,
     });
   } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Airpoint: license server request timed out.");
+    }
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Airpoint: failed to reach license server: ${message}`);
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {
@@ -180,7 +197,10 @@ export function createAirpointSDK(
   let handTracker: HandTracker | null = null;
   let video = options.video ?? null;
   let managedStream: MediaStream | null = null;
+  let cameraRequestToken = 0;
   let running = false;
+  let initialized = false;
+  let preparePromise: Promise<void> | null = null;
   let lastFrameMs = 0;
   let rafId: number | null = null;
   let rvfcId: number | null = null;
@@ -277,8 +297,8 @@ export function createAirpointSDK(
     return assetPaths;
   };
 
-  let engine = options.apiKey
-    ? (null as unknown as HandCursorEngine)
+  let engine: HandCursorEngine | null = options.apiKey
+    ? null
     : new HandCursorEngine(config, buildEngineAssetPaths(null));
   const smoother = new LandmarkSmoother(
     config.landmarkMinCutoff,
@@ -557,6 +577,10 @@ export function createAirpointSDK(
     results: MediaPipeLikeResult,
     timestamp: number,
   ) => {
+    if (!engine) {
+      throw new Error("Airpoint SDK: tracking engine is not initialized.");
+    }
+
     const { width, height } = resolveFrameSize();
 
     if (
@@ -830,72 +854,7 @@ export function createAirpointSDK(
     }
   };
 
-  const start = async () => {
-    if (running) return;
-    running = true;
-
-    try {
-      if (config.enableMLClassifier) {
-        if (options.apiKey) {
-          premiumAssets = await fetchAndPreparePremiumAssets(
-            options.apiKey,
-            options.licenseServerUrl,
-          );
-        } else if (options.premium) {
-          premiumAssets = await prepareAirpointPremiumAssets({
-            ...options.premium,
-            bundlePath:
-              options.premium.bundlePath ?? resolvedAssets.premiumBundlePath,
-          });
-        }
-      }
-
-      engine = new HandCursorEngine(
-        config,
-        buildEngineAssetPaths(premiumAssets),
-      );
-
-      if (source === "mediapipe") {
-        if (!video) {
-          throw new Error(
-            "Airpoint SDK: video element is required for mediapipe source.",
-          );
-        }
-
-        await validateAirpointSdkAssets(options.assets, {
-          enableMLClassifier: config.enableMLClassifier,
-          gestureModel: config.gestureModel,
-          hasPremiumBundle: Boolean(premiumAssets),
-          premiumBundlePath: premiumAssets
-            ? undefined
-            : (options.premium?.bundlePath ?? resolvedAssets.premiumBundlePath),
-        });
-
-        handTracker = new HandTracker({
-          maxHands: config.maxHands,
-          detectionConfidence: config.detectionConfidence,
-          trackingConfidence: config.trackingConfidence,
-          delegate: config.handTrackingDelegate ?? "GPU",
-          wasmPath: resolvedAssets.mediapipeWasmPath,
-          modelPath: resolvedAssets.mediapipeModelPath,
-        });
-
-        await handTracker.initialize();
-        scheduleNext();
-      }
-    } catch (error) {
-      running = false;
-      premiumAssets?.revoke();
-      premiumAssets = null;
-      throw error;
-    }
-  };
-
-  const stop = () => {
-    if (!running) return;
-    running = false;
-    processing = false;
-
+  const cancelScheduledFrame = () => {
     if (rafId !== null) {
       cancelAnimationFrame(rafId);
       rafId = null;
@@ -910,13 +869,134 @@ export function createAirpointSDK(
       }
       rvfcId = null;
     }
+  };
 
-    handTracker?.close();
-    handTracker = null;
+  const resetTrackingState = () => {
     activeHands.clear();
     lastCursorByHand.clear();
     poseTrackers.Left.reset();
     poseTrackers.Right.reset();
+    smoother.reset();
+  };
+
+  const ensurePremiumAssets = async () => {
+    if (!config.enableMLClassifier || premiumAssets) {
+      return;
+    }
+
+    if (options.apiKey) {
+      premiumAssets = await fetchAndPreparePremiumAssets(
+        options.apiKey,
+        options.licenseServerUrl,
+      );
+      return;
+    }
+
+    if (options.premium) {
+      premiumAssets = await prepareAirpointPremiumAssets({
+        ...options.premium,
+        bundlePath:
+          options.premium.bundlePath ?? resolvedAssets.premiumBundlePath,
+      });
+    }
+  };
+
+  const ensureEngine = () => {
+    if (
+      engine &&
+      (!config.enableMLClassifier ||
+        premiumAssets ||
+        (!options.apiKey && !options.premium))
+    ) {
+      return;
+    }
+
+    engine = new HandCursorEngine(config, buildEngineAssetPaths(premiumAssets));
+  };
+
+  const prepare = async () => {
+    preparePromise ??= (async () => {
+      await ensurePremiumAssets();
+      ensureEngine();
+    })().catch((error) => {
+      preparePromise = null;
+      throw error;
+    });
+
+    await preparePromise;
+  };
+
+  const initialize = async () => {
+    if (initialized) {
+      return;
+    }
+
+    await prepare();
+
+    if (source === "mediapipe") {
+      if (!video) {
+        throw new Error(
+          "Airpoint SDK: video element is required for mediapipe source.",
+        );
+      }
+
+      await validateAirpointSdkAssets(options.assets, {
+        enableMLClassifier: config.enableMLClassifier,
+        gestureModel: config.gestureModel,
+        hasPremiumBundle: Boolean(premiumAssets),
+        premiumBundlePath: premiumAssets
+          ? undefined
+          : (options.premium?.bundlePath ?? resolvedAssets.premiumBundlePath),
+      });
+
+      handTracker = new HandTracker({
+        maxHands: config.maxHands,
+        detectionConfidence: config.detectionConfidence,
+        trackingConfidence: config.trackingConfidence,
+        delegate: config.handTrackingDelegate ?? "GPU",
+        wasmPath: resolvedAssets.mediapipeWasmPath,
+        modelPath: resolvedAssets.mediapipeModelPath,
+      });
+
+      await handTracker.initialize();
+    }
+
+    initialized = true;
+  };
+
+  const start = async () => {
+    if (running) return;
+    running = true;
+
+    try {
+      await initialize();
+      scheduleNext();
+    } catch (error) {
+      running = false;
+      handTracker?.close();
+      handTracker = null;
+      initialized = false;
+      premiumAssets?.revoke();
+      premiumAssets = null;
+      throw error;
+    }
+  };
+
+  const pause = () => {
+    if (!running) return;
+    running = false;
+    processing = false;
+    cancelScheduledFrame();
+    resetTrackingState();
+  };
+
+  const stop = () => {
+    pause();
+
+    handTracker?.close();
+    handTracker = null;
+    initialized = false;
+    resetTrackingState();
     premiumAssets?.revoke();
     premiumAssets = null;
 
@@ -926,7 +1006,7 @@ export function createAirpointSDK(
 
   const updateConfig = (next: Partial<HandConfig>) => {
     config = buildConfig({ ...config, ...next });
-    engine.updateConfig(config);
+    engine?.updateConfig(config);
     smoother.updateConfig(config.landmarkMinCutoff, config.landmarkBeta);
     updatePalmWheelDetectorConfig();
     // Update palm wheel slots on config change
@@ -974,8 +1054,8 @@ export function createAirpointSDK(
   const startCamera = async (
     videoEl: HTMLVideoElement,
   ): Promise<{ stream: MediaStream; mode: CameraMode }> => {
-    // Stop any existing managed stream
     stopCamera();
+    const requestToken = ++cameraRequestToken;
 
     const aspectRatio = config.cameraAspectRatio || "auto";
     const deviceId = config.cameraDeviceId || undefined;
@@ -986,8 +1066,38 @@ export function createAirpointSDK(
       buildCameraOptions(),
     );
 
-    videoEl.srcObject = stream;
-    await videoEl.play();
+    if (requestToken !== cameraRequestToken) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error("Airpoint SDK: camera start was cancelled.");
+    }
+
+    try {
+      videoEl.srcObject = stream;
+      await Promise.race([
+        videoEl.play(),
+        new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error("Airpoint SDK: video playback timed out.")),
+            VIDEO_PLAY_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } catch (error) {
+      stream.getTracks().forEach((track) => track.stop());
+      if (videoEl.srcObject === stream) {
+        videoEl.srcObject = null;
+      }
+      throw error;
+    }
+
+    if (requestToken !== cameraRequestToken) {
+      stream.getTracks().forEach((track) => track.stop());
+      if (videoEl.srcObject === stream) {
+        videoEl.srcObject = null;
+      }
+      throw new Error("Airpoint SDK: camera start was cancelled.");
+    }
+
     managedStream = stream;
     video = videoEl;
 
@@ -995,6 +1105,7 @@ export function createAirpointSDK(
   };
 
   const stopCamera = () => {
+    cameraRequestToken++;
     if (managedStream) {
       managedStream.getTracks().forEach((t) => t.stop());
       managedStream = null;
@@ -1028,7 +1139,9 @@ export function createAirpointSDK(
   const getConfig = (): HandConfig => ({ ...config });
 
   return {
+    prepare,
     start,
+    pause,
     stop,
     startCamera,
     stopCamera,

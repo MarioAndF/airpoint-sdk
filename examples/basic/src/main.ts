@@ -1,6 +1,8 @@
 import {
+  createAirpointCursorOverlay,
+  createAirpointDomAdapter,
   createAirpointPlugin,
-  type AirpointIntentEvent,
+  createAirpointSvgIconElement,
   type AirpointPlugin,
   type AirpointPluginManifest,
 } from "@airpoint/sdk";
@@ -14,19 +16,27 @@ function getElement<T extends Element>(selector: string): T {
   return element;
 }
 
+const stage = getElement<HTMLCanvasElement>("#stage");
 const video = getElement<HTMLVideoElement>("#airpoint-video");
-const cursor = getElement<HTMLDivElement>("#cursor");
-const startButton = getElement<HTMLButtonElement>("#start");
-const stopButton = getElement<HTMLButtonElement>("#stop");
-const statusElement = getElement<HTMLParagraphElement>("#status");
-const logElement = getElement<HTMLPreElement>("#log");
-const targetButton = document.querySelector<HTMLButtonElement>("#target");
+const toggleButton = getElement<HTMLButtonElement>("#toggle");
+const trackingLabel = getElement<HTMLSpanElement>("#tracking-label-text");
+const clickTarget = getElement<HTMLButtonElement>("#click-target");
+const cursor = createAirpointCursorOverlay({
+  color: "#111111",
+  size: 30,
+  style: "arrow",
+});
+const airpointApiKey =
+  import.meta.env.VITE_AIRPOINT_API_KEY?.trim() || undefined;
+const licenseServerUrl =
+  import.meta.env.VITE_AIRPOINT_LICENSE_SERVER_URL?.trim() || undefined;
+const STARTUP_TIMEOUT_MS = 30_000;
 
 const manifest = {
   metadata: {
     appId: "airpoint-basic-example",
     appName: "Airpoint Basic Example",
-    profile: "basic-browser",
+    profile: "minimal-canvas",
   },
   runtime: {
     assets: {
@@ -38,93 +48,171 @@ const manifest = {
   },
   tracking: {
     config: {
-      enableMLClassifier: false,
+      enableMLClassifier: Boolean(airpointApiKey),
+      gestureModel: "airmouse-4.3-onnx",
     },
     cursorHand: "Right",
     clickHand: "Right",
   },
   intents: {
     thumb_middle_pinch: {
-      tap: {
-        id: "select-target",
-        target: "primaryTarget",
-      },
-    },
-  },
-  dom: {
-    targets: {
-      primaryTarget: "#target",
+      tap: "airpoint-click",
     },
   },
 } satisfies AirpointPluginManifest;
 
-let plugin: AirpointPlugin | null = null;
+let plugin: AirpointPlugin = createPlugin();
+let running = false;
 
-function setStatus(message: string) {
-  statusElement.textContent = message;
+function prepareInBackground() {
+  void plugin.prepare().catch((error) => {
+    console.warn("Airpoint background prepare failed:", error);
+  });
 }
 
-function log(message: string) {
-  logElement.textContent = `${new Date().toLocaleTimeString()} ${message}\n${logElement.textContent}`;
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+) {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() =>
+    clearTimeout(timeoutId),
+  );
 }
 
-function performIntent(event: AirpointIntentEvent) {
-  log(`intent: ${event.intent.id} (${event.intent.phase})`);
-  if (event.intent.id === "select-target" && event.target instanceof HTMLElement) {
-    event.target.click();
+function setToggleButton(state: "start" | "starting" | "stop") {
+  const iconName = state === "stop" ? "pointer-off" : "pointer";
+  const label =
+    state === "starting"
+      ? "Loading tracking"
+      : state === "stop"
+        ? "Stop tracking"
+        : "Start tracking";
+  const content =
+    state === "starting"
+      ? document.createElement("span")
+      : createAirpointSvgIconElement(iconName, {
+          size: 22,
+          strokeWidth: 2.25,
+        });
+
+  if (state === "starting") {
+    content.classList.add("tracking-spinner");
+    content.setAttribute("aria-hidden", "true");
   }
+
+  toggleButton.replaceChildren(content);
+  toggleButton.dataset.state = state;
+  toggleButton.setAttribute("aria-label", label);
+  toggleButton.title = label;
+  trackingLabel.textContent = label;
+}
+
+function paintCanvas() {
+  const scale = window.devicePixelRatio || 1;
+  const width = Math.max(1, window.innerWidth);
+  const height = Math.max(1, window.innerHeight);
+
+  stage.width = Math.round(width * scale);
+  stage.height = Math.round(height * scale);
+  stage.style.width = `${width}px`;
+  stage.style.height = `${height}px`;
+
+  const ctx = stage.getContext("2d");
+  if (!ctx) {
+    return;
+  }
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
 }
 
 function createPlugin() {
-  return createAirpointPlugin({
+  const nextPlugin = createAirpointPlugin({
+    adapter: createAirpointDomAdapter(),
+    apiKey: airpointApiKey,
+    licenseServerUrl,
     manifest,
     video,
-    adapter: {
-      performIntent,
-    },
   });
-}
 
-async function startTracking() {
-  if (plugin?.getState().running) {
-    return;
-  }
-
-  setStatus("Requesting camera...");
-  plugin = createPlugin();
-
-  plugin.on("move", (event) => {
+  nextPlugin.on("move", (event) => {
     if (typeof event.x !== "number" || typeof event.y !== "number") {
       return;
     }
-    cursor.style.left = `${event.x * 100}%`;
-    cursor.style.top = `${event.y * 100}%`;
-    cursor.classList.add("is-visible");
+    cursor.move(event.x, event.y, {
+      hand: event.hand,
+      space: "normalized",
+    });
   });
 
-  plugin.on("hand_found", (event) => log(`hand found: ${event.hand}`));
-  plugin.on("hand_lost", (event) => log(`hand lost: ${event.hand}`));
-  plugin.on("intent", performIntent);
+  nextPlugin.on("hand_lost", () => {
+    cursor.hide();
+  });
+
+  return nextPlugin;
+}
+
+async function start() {
+  if (running || toggleButton.disabled) {
+    return;
+  }
+
+  toggleButton.disabled = true;
+  setToggleButton("starting");
 
   try {
-    await plugin.startCamera(video);
-    await plugin.start();
-    setStatus("Tracking active.");
+    await withTimeout(
+      (async () => {
+        await plugin.startCamera(video);
+        await plugin.start();
+      })(),
+      STARTUP_TIMEOUT_MS,
+      "Airpoint example: tracking startup timed out.",
+    );
+    running = true;
+    setToggleButton("stop");
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    setStatus(message);
+    console.error(error);
     plugin.stop();
-    plugin = null;
+    plugin = createPlugin();
+    prepareInBackground();
+    running = false;
+    cursor.hide();
+    setToggleButton("start");
+  } finally {
+    toggleButton.disabled = false;
   }
 }
 
-function stopTracking() {
-  plugin?.stop();
-  plugin = null;
-  cursor.classList.remove("is-visible");
-  setStatus("Stopped.");
+function stop() {
+  plugin.pause();
+  plugin.stopCamera();
+  running = false;
+  cursor.hide();
+  setToggleButton("start");
 }
 
-startButton.addEventListener("click", () => void startTracking());
-stopButton.addEventListener("click", stopTracking);
-targetButton?.addEventListener("click", () => log("target selected"));
+toggleButton.addEventListener("click", () => {
+  if (running) {
+    stop();
+    return;
+  }
+  void start();
+});
+
+clickTarget.addEventListener("click", () => {
+  clickTarget.textContent = "Clicked";
+  window.setTimeout(() => {
+    clickTarget.textContent = "Click me";
+  }, 650);
+});
+
+window.addEventListener("resize", paintCanvas);
+prepareInBackground();
+setToggleButton("start");
+paintCanvas();

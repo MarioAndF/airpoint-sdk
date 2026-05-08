@@ -3,6 +3,12 @@ dist/
 .pack/
 coverage/
 *.tsbuildinfo
+.env
+.env.*
+!.env.example
 examples/*/dist/
 examples/*/node_modules/
+examples/*/.env
+examples/*/.env.*
+!examples/*/.env.example
 examples/*/public/airpoint/

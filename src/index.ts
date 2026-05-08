@@ -1,4 +1,29 @@
 export { createAirpointPlugin } from "./plugin";
+export { createAirpointCursorOverlay } from "./cursor";
+export { createAirpointDomAdapter } from "./domAdapter";
+export {
+  AIRPOINT_SVG_ICONS,
+  createAirpointSvgIconElement,
+  getAirpointSvgIconMarkup,
+} from "./icons";
+export type {
+  AirpointCursorMoveOptions,
+  AirpointCursorOverlay,
+  AirpointCursorOverlayOptions,
+  AirpointCursorStyle,
+} from "./cursor";
+export type {
+  AirpointDomAdapterOptions,
+  AirpointDomAdapterRoot,
+  AirpointDomIntentAction,
+  AirpointDomPointerTargetMode,
+} from "./domAdapter";
+export type {
+  AirpointSvgIconDefinition,
+  AirpointSvgIconName,
+  AirpointSvgIconNode,
+  AirpointSvgIconOptions,
+} from "./icons";
 export type {
   AirpointHostAdapter,
   AirpointIntent,

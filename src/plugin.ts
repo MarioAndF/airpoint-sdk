@@ -95,7 +95,9 @@ export type AirpointPluginOptions = {
 };
 
 export type AirpointPlugin = {
+  prepare(): Promise<void>;
   start(): Promise<void>;
+  pause(): void;
   stop(): void;
   startCamera(video: HTMLVideoElement): Promise<{
     stream: MediaStream;
@@ -485,7 +487,17 @@ export function createAirpointPlugin(
   });
 
   return {
+    prepare: () => sdk.prepare(),
     start: () => sdk.start(),
+    pause: () => {
+      for (const state of poseStates.values()) {
+        if (state.holdTimer) {
+          clearTimeout(state.holdTimer);
+        }
+      }
+      poseStates.clear();
+      sdk.pause();
+    },
     stop: () => {
       for (const state of poseStates.values()) {
         if (state.holdTimer) {

@@ -14,11 +14,18 @@ pnpm exec airpoint-sdk-copy-assets --out public --base airpoint
 ## Quick Start
 
 ```ts
-import { createAirpointPlugin } from "@airpoint/sdk";
+import {
+  createAirpointCursorOverlay,
+  createAirpointDomAdapter,
+  createAirpointPlugin,
+} from "@airpoint/sdk";
 
 const video = document.querySelector("video")!;
+const cursor = createAirpointCursorOverlay({ style: "arrow" });
+const apiKey = import.meta.env.VITE_AIRPOINT_API_KEY;
 
 const plugin = createAirpointPlugin({
+  apiKey,
   video,
   manifest: {
     runtime: {
@@ -28,7 +35,8 @@ const plugin = createAirpointPlugin({
     },
     tracking: {
       config: {
-        enableMLClassifier: false,
+        enableMLClassifier: true,
+        gestureModel: "airmouse-4.3-onnx",
       },
     },
     intents: {
@@ -37,12 +45,16 @@ const plugin = createAirpointPlugin({
       },
     },
   },
-  adapter: {
-    performIntent(event) {
-      console.log("Airpoint intent", event.intent.id, event);
-    },
-  },
+  adapter: createAirpointDomAdapter(),
 });
+
+plugin.on("move", (event) => {
+  cursor.move(event.x, event.y, { hand: event.hand, space: "normalized" });
+});
+
+plugin.on("hand_lost", () => cursor.hide());
+
+void plugin.prepare(); // optional: prefetch/decrypt premium assets before the user starts tracking
 
 await plugin.startCamera(video);
 await plugin.start();
@@ -53,6 +65,8 @@ await plugin.start();
 Stable v0 integration surface:
 
 - `createAirpointPlugin(options)`
+- `createAirpointCursorOverlay(options)`
+- `createAirpointDomAdapter(options)`
 - `AirpointPlugin`
 - `AirpointPluginManifest`
 - `AirpointHostAdapter`
@@ -64,6 +78,8 @@ Stable v0 integration surface:
 - `validateAirpointSdkAssets(assets, profile)`
 
 `@airpoint/sdk/internal` is intentionally unstable. It exists to keep older first-party integrations moving while the plugin API settles.
+
+Use `plugin.prepare()` at app load to fetch/decrypt premium assets and warm the gesture engine before the user clicks Start. Use `plugin.pause()` for user-facing tracking toggles when you want fast resume. It stops frame processing but keeps the loaded trackers and gesture assets warm. Use `plugin.stop()` only for full teardown.
 
 ## Asset Contract
 
@@ -99,7 +115,49 @@ pnpm install
 pnpm --filter @airpoint/basic-example dev
 ```
 
-The example serves a camera-backed cursor and uses the public plugin API only. It disables the premium gesture classifier by default so it can run with the public assets copied by the package.
+The example serves a camera-backed cursor and uses the public plugin API only. Copy `examples/basic/.env.example` to `examples/basic/.env.local` and set `VITE_AIRPOINT_API_KEY` to enable the premium AirMouse classifier; without a key the example falls back to the public tracking path.
+
+## DOM Adapter
+
+`createAirpointDomAdapter()` is a framework-agnostic host adapter for normal web apps. It turns tap intents into DOM clicks at the Airpoint cursor position by default, resolves manifest targets for explicit non-pointer actions, and dispatches bubbling `airpoint:intent` plus `airpoint:<intent-id>` custom events so app code can handle custom controls.
+
+```ts
+createAirpointPlugin({
+  apiKey: import.meta.env.VITE_AIRPOINT_API_KEY,
+  video,
+  manifest: {
+    tracking: {
+      config: {
+        enableMLClassifier: true,
+        gestureModel: "airmouse-4.3-onnx",
+      },
+    },
+    intents: {
+      thumb_middle_pinch: {
+        tap: "click-under-cursor",
+      },
+    },
+  },
+  adapter: createAirpointDomAdapter(),
+});
+```
+
+For non-click behavior, set an action by intent id or per binding metadata:
+
+```ts
+createAirpointDomAdapter({
+  actions: {
+    "open-menu": "dispatch_event",
+    "focus-search": "focus",
+  },
+});
+```
+
+If an intent should always act on its declared manifest target instead of the element under the cursor, opt into that behavior:
+
+```ts
+createAirpointDomAdapter({ pointerTarget: "intent" });
+```
 
 ## Development
 
@@ -138,4 +196,4 @@ Browser-delivered model files can still be extracted by determined users. The co
 
 ## Release Notes
 
-Before public npm release, choose the license and finalize the default AirMouse asset stance. See [docs/EXTRACTION.md](docs/EXTRACTION.md).
+Before public npm release, choose the license and finalize the default AirMouse asset stance.

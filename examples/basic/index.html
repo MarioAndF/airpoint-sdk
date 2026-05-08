@@ -6,20 +6,14 @@
     <title>Airpoint Basic Example</title>
   </head>
   <body>
-    <main class="shell">
-      <section class="stage" aria-label="Airpoint demo stage">
-        <video id="airpoint-video" class="camera" playsinline muted></video>
-        <div id="cursor" class="cursor" aria-hidden="true"></div>
-        <button id="target" class="target" type="button">Select Target</button>
-      </section>
-      <aside class="panel">
-        <h1>Airpoint Basic Example</h1>
-        <p id="status">Ready.</p>
-        <button id="start" type="button">Start Tracking</button>
-        <button id="stop" type="button">Stop Tracking</button>
-        <pre id="log"></pre>
-      </aside>
-    </main>
+    <canvas id="stage" aria-label="Airpoint cursor canvas"></canvas>
+    <video id="airpoint-video" playsinline muted></video>
+    <button id="click-target" type="button">Click me</button>
+    <div id="tracking-label" aria-hidden="true">
+      <span id="tracking-label-text">Start tracking</span>
+      <span class="tracking-label-arrow"></span>
+    </div>
+    <button id="toggle" type="button" aria-label="Start tracking"></button>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
