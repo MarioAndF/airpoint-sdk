@@ -15,11 +15,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/medhuelabs/airpoint-sdk.git"
+    "url": "git+https://github.com/marioandf/airpoint-sdk.git"
   },
-  "homepage": "https://github.com/medhuelabs/airpoint-sdk#readme",
+  "homepage": "https://github.com/marioandf/airpoint-sdk#readme",
   "bugs": {
-    "url": "https://github.com/medhuelabs/airpoint-sdk/issues"
+    "url": "https://github.com/marioandf/airpoint-sdk/issues"
   },
   "packageManager": "pnpm@9.15.4",
   "type": "module",
