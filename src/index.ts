@@ -7,9 +7,11 @@ export {
   getAirpointSvgIconMarkup,
 } from "./icons";
 export type {
+  AirpointCursorClickAnimation,
   AirpointCursorMoveOptions,
   AirpointCursorOverlay,
   AirpointCursorOverlayOptions,
+  AirpointCursorPulseOptions,
   AirpointCursorStyle,
 } from "./cursor";
 export type {

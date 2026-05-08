@@ -26,9 +26,12 @@ export type AirpointSdkEventBase = {
 
 export type AirpointMoveEvent = AirpointSdkEventBase & {
   type: "move";
+  clicking?: boolean;
   speed: number;
   fingerSpeed: number;
+  grabbing?: boolean;
   handednessScore?: number;
+  rightClicking?: boolean;
   scroll?: { x: number; y: number };
 };
 
@@ -113,7 +116,10 @@ export class AirpointEventEmitter {
     };
   }
 
-  emit<T extends AirpointSdkEventType>(type: T, event: AirpointSdkEventMap[T]): void {
+  emit<T extends AirpointSdkEventType>(
+    type: T,
+    event: AirpointSdkEventMap[T],
+  ): void {
     const bucket = this.listeners.get(type);
     if (!bucket) return;
     for (const cb of bucket) {

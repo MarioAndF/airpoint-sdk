@@ -1,4 +1,13 @@
 export type AirpointCursorStyle = "arrow" | "circle" | "crosshair";
+export type AirpointCursorClickAnimation = "none" | "pulse";
+
+export type AirpointCursorPulseOptions = {
+  color?: string;
+  durationMs?: number;
+  opacity?: number;
+  scale?: number;
+  size?: number;
+};
 
 export type AirpointCursorMoveOptions = {
   clicking?: boolean;
@@ -10,6 +19,10 @@ export type AirpointCursorMoveOptions = {
 
 export type AirpointCursorOverlayOptions = {
   className?: string;
+  clickAnimation?: AirpointCursorClickAnimation;
+  clickAnimationColor?: string;
+  clickAnimationDurationMs?: number;
+  clickAnimationScale?: number;
   color?: string;
   root?: HTMLElement;
   size?: number;
@@ -22,6 +35,7 @@ export type AirpointCursorOverlay = {
   element: HTMLDivElement;
   hide(): void;
   move(x: number, y: number, options?: AirpointCursorMoveOptions): void;
+  pulse(options?: AirpointCursorPulseOptions): void;
   setStyle(style: AirpointCursorStyle): void;
   show(): void;
 };
@@ -54,9 +68,21 @@ function setBaseStyles(
     position: "fixed",
     top: "0px",
     transform: "translate3d(-9999px, -9999px, 0)",
-    transition: "opacity 120ms ease, scale 90ms ease",
+    transition: "opacity 120ms ease",
     width: `${options.size}px`,
     zIndex: String(options.zIndex),
+  });
+}
+
+function setGlyphStyles(element: HTMLElement) {
+  Object.assign(element.style, {
+    height: "100%",
+    left: "0px",
+    position: "absolute",
+    top: "0px",
+    transform: "scale(1)",
+    transition: "transform 90ms ease",
+    width: "100%",
   });
 }
 
@@ -96,13 +122,7 @@ function renderCircle(element: HTMLDivElement) {
     stroke: "#ffffff",
     "stroke-width": "2.5",
   });
-  const inner = createSvgElement("circle", {
-    cx: "16",
-    cy: "16",
-    fill: "#ffffff",
-    r: "2",
-  });
-  svg.append(outer, inner);
+  svg.append(outer);
   element.replaceChildren(svg);
 }
 
@@ -168,27 +188,114 @@ function getHotspotOffset(style: AirpointCursorStyle, size: number) {
   };
 }
 
+function createPulseElement(
+  root: HTMLElement,
+  point: { x: number; y: number },
+  baseOptions: Required<
+    Pick<AirpointCursorOverlayOptions, "color" | "size" | "zIndex">
+  >,
+  animationOptions: {
+    color?: string;
+    durationMs: number;
+    scale: number;
+  },
+  pulseOptions: AirpointCursorPulseOptions = {},
+  onRemove?: (pulse: HTMLSpanElement) => void,
+) {
+  const color =
+    pulseOptions.color ?? animationOptions.color ?? baseOptions.color;
+  const durationMs = Math.max(
+    0,
+    pulseOptions.durationMs ?? animationOptions.durationMs,
+  );
+  const opacity = pulseOptions.opacity ?? 0.32;
+  const pulseScale = pulseOptions.scale ?? animationOptions.scale;
+  const size = pulseOptions.size ?? baseOptions.size * 1.25;
+  const pulse = document.createElement("span");
+  pulse.dataset.airpointCursorPulse = "true";
+  Object.assign(pulse.style, {
+    border: `2px solid ${color}`,
+    borderRadius: "9999px",
+    boxSizing: "border-box",
+    height: `${size}px`,
+    left: `${point.x}px`,
+    opacity: String(opacity),
+    pointerEvents: "none",
+    position: "fixed",
+    top: `${point.y}px`,
+    transform: "translate(-50%, -50%) scale(1)",
+    transformOrigin: "center",
+    transition: `transform ${durationMs}ms cubic-bezier(0.16, 1, 0.3, 1), opacity ${durationMs}ms ease-out`,
+    width: `${size}px`,
+    zIndex: String(baseOptions.zIndex - 1),
+  });
+  root.append(pulse);
+
+  const win = root.ownerDocument.defaultView ?? window;
+  win.setTimeout(() => {
+    pulse.style.opacity = "0";
+    pulse.style.transform = `translate(-50%, -50%) scale(${pulseScale})`;
+  }, 0);
+  win.setTimeout(() => {
+    pulse.remove();
+    onRemove?.(pulse);
+  }, durationMs + 60);
+
+  return pulse;
+}
+
 export function createAirpointCursorOverlay(
   options: AirpointCursorOverlayOptions = {},
 ): AirpointCursorOverlay {
   const root = options.root ?? document.body;
   const element = document.createElement("div");
+  const glyph = document.createElement("div");
   const baseOptions = {
     color: options.color ?? "#111111",
     size: options.size ?? 28,
     zIndex: options.zIndex ?? 2147483647,
   };
+  const animation = options.clickAnimation ?? "pulse";
+  const animationOptions = {
+    color: options.clickAnimationColor,
+    durationMs: options.clickAnimationDurationMs ?? 380,
+    scale: options.clickAnimationScale ?? 1.9,
+  };
   let currentStyle = options.style ?? "arrow";
+  let clickWasActive = false;
+  let lastHotspotPoint: { x: number; y: number } | null = null;
+  const pulses = new Set<HTMLSpanElement>();
+
+  const addPulse = (
+    point: { x: number; y: number },
+    pulseOptions?: AirpointCursorPulseOptions,
+  ) => {
+    const pulse = createPulseElement(
+      root,
+      point,
+      baseOptions,
+      animationOptions,
+      pulseOptions,
+      (removedPulse) => pulses.delete(removedPulse),
+    );
+    pulses.add(pulse);
+  };
 
   element.className = options.className ?? "airpoint-cursor";
   element.setAttribute("aria-hidden", "true");
   setBaseStyles(element, baseOptions);
+  setGlyphStyles(glyph);
   element.style.filter = "drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35))";
-  renderCursor(element, currentStyle);
+  renderCursor(glyph, currentStyle);
+  element.append(glyph);
   root.append(element);
 
   return {
     destroy() {
+      for (const pulse of pulses) {
+        pulse.remove();
+      }
+      pulses.clear();
       element.remove();
     },
     element,
@@ -200,11 +307,15 @@ export function createAirpointCursorOverlay(
       const pixelX = toPixelCoordinate(x, "x", space);
       const pixelY = toPixelCoordinate(y, "y", space);
       const hotspot = getHotspotOffset(currentStyle, baseOptions.size);
+      lastHotspotPoint = { x: pixelX, y: pixelY };
       const scale = moveOptions.grabbing
         ? 1.1
         : moveOptions.clicking || moveOptions.rightClicking
           ? 0.9
           : 1;
+      const clickActive = Boolean(
+        moveOptions.clicking || moveOptions.rightClicking,
+      );
       element.dataset.hand = moveOptions.hand ?? "";
       element.dataset.state = moveOptions.grabbing
         ? "grabbing"
@@ -214,15 +325,29 @@ export function createAirpointCursorOverlay(
             ? "clicking"
             : "idle";
       element.style.opacity = "1";
-      element.style.scale = String(scale);
+      glyph.style.transformOrigin = `${hotspot.x}px ${hotspot.y}px`;
+      glyph.style.transform = `scale(${scale})`;
       element.style.transform = `translate3d(${pixelX - hotspot.x}px, ${pixelY - hotspot.y}px, 0)`;
+      if (animation !== "none" && clickActive && !clickWasActive) {
+        addPulse(lastHotspotPoint);
+      }
+      clickWasActive = clickActive;
+    },
+    pulse(pulseOptions = {}) {
+      const hotspot = getHotspotOffset(currentStyle, baseOptions.size);
+      const rect = element.getBoundingClientRect();
+      const point = lastHotspotPoint ?? {
+        x: rect.left + hotspot.x,
+        y: rect.top + hotspot.y,
+      };
+      addPulse(point, pulseOptions);
     },
     setStyle(style) {
       if (style === currentStyle) {
         return;
       }
       currentStyle = style;
-      renderCursor(element, currentStyle);
+      renderCursor(glyph, currentStyle);
     },
     show() {
       element.style.opacity = "1";

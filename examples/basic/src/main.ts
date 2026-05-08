@@ -22,6 +22,7 @@ const toggleButton = getElement<HTMLButtonElement>("#toggle");
 const trackingLabel = getElement<HTMLSpanElement>("#tracking-label-text");
 const clickTarget = getElement<HTMLButtonElement>("#click-target");
 const cursor = createAirpointCursorOverlay({
+  clickAnimation: "pulse",
   color: "#111111",
   size: 30,
   style: "arrow",
@@ -145,7 +146,10 @@ function createPlugin() {
       return;
     }
     cursor.move(event.x, event.y, {
+      clicking: event.clicking,
+      grabbing: event.grabbing,
       hand: event.hand,
+      rightClicking: event.rightClicking,
       space: "normalized",
     });
   });
