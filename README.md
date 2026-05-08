@@ -1,59 +1,85 @@
+<div align="center">
+
 # Airpoint SDK
 
-Browser-first plugin runtime for adding touchless hand control to web apps.
+**Touchless hand control for the web.** Add it to any web app and let users move a cursor, click, and trigger custom intents with their hand — just a webcam, no extra hardware.
 
-This repo is intentionally monolithic for the standalone v0 line: the public plugin API, tracking orchestration, MediaPipe adapter, gesture engine internals, runtime assets, and examples live together so consumers can install one package and hosts do not need to understand Airpoint internals.
+[![npm](https://img.shields.io/npm/v/@airpoint/sdk.svg)](https://www.npmjs.com/package/@airpoint/sdk)
+[![license](https://img.shields.io/npm/l/@airpoint/sdk.svg)](./LICENSE)
 
-## Install
+</div>
 
-With npm:
+---
+
+- [Requirements](#requirements)
+- [Setup](#setup)
+- [Quick start](#quick-start)
+- [Enabling the AirMouse ML model](#enabling-the-airmouse-ml-model)
+- [How it works](#how-it-works)
+- [Recipes](#recipes)
+- [API reference](#api-reference)
+- [About AirMouse](#about-airmouse)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Requirements
+
+- Modern browser with `getUserMedia` (Chrome, Edge, Safari 16+, Firefox).
+- Page served over **HTTPS** (or `localhost`) — required by the camera API.
+- A bundler (Vite, Next.js, webpack, …) or any static host that can serve a public assets directory.
+
+## Setup
+
+**1. Install the package.**
 
 ```bash
 npm install @airpoint/sdk
-npm exec airpoint-sdk-copy-assets -- --out public --base airpoint
+# or: pnpm add @airpoint/sdk · yarn add @airpoint/sdk · bun add @airpoint/sdk
 ```
 
-With pnpm:
+**2. Copy the runtime assets into your public directory.**
+
+The MediaPipe model and WASM files can't be bundled — they need to be served as static files.
 
 ```bash
-pnpm add @airpoint/sdk
-pnpm exec airpoint-sdk-copy-assets --out public --base airpoint
+npx airpoint-sdk-copy-assets --out public --base airpoint
 ```
 
-The SDK is package-manager agnostic. This repo uses pnpm for development, but consuming apps can use npm, pnpm, yarn, or bun.
+This writes everything under `public/airpoint/`. If your framework uses a different static folder (e.g. SvelteKit's `static/`), pass `--out static`.
 
-The install command adds `@airpoint/sdk` to your app so you can import the plugin API from application code. The asset-copy command copies the browser runtime files that cannot be bundled directly, including the MediaPipe hand tracker model, MediaPipe WASM files, and ONNX Runtime WASM files. With `--out public --base airpoint`, those files are written under `public/airpoint` and served by your app at `/airpoint/...`. Match that URL in your manifest with `runtime.assets.basePath: "/airpoint"`.
+**3. (Optional) Add your AirMouse license key to `.env`.**
 
-For npm, the extra `--` before `--out` is npm's argument separator: it tells npm to pass `--out public --base airpoint` to `airpoint-sdk-copy-assets` instead of parsing those flags itself.
+The SDK works without a key using the built-in heuristic engine. If you have a license, drop the key in your environment file:
 
-## Framework Support
+```bash
+# .env / .env.local
+VITE_AIRPOINT_API_KEY=your-license-key-here
+```
 
-Airpoint is a browser ESM package, not a Vite-only package. It can be used from Vite, Next.js, Remix, Astro, webpack, Rollup, Parcel, or another modern bundler as long as the code runs on the client and the runtime assets are served from a public path such as `/airpoint`.
+> Use whatever env-var prefix your framework requires: `VITE_*` for Vite, `NEXT_PUBLIC_*` for Next.js, `PUBLIC_*` for SvelteKit/Astro, etc. Keys are loaded in the browser, so anything you expose to the client is fine.
 
-For SSR frameworks, create and start the plugin only in browser/client code because camera access, DOM events, and MediaPipe require browser APIs. Plain no-bundler HTML apps are possible with an import map or CDN/bundled build, but the package does not currently ship a standalone UMD/IIFE script tag build.
+That's the full setup. Now you can wire it up.
 
-## Quick Start
+## Quick start
 
 ```ts
 import {
+  createAirpointPlugin,
   createAirpointCursorOverlay,
   createAirpointDomAdapter,
-  createAirpointPlugin,
 } from "@airpoint/sdk";
 
 const video = document.querySelector("video")!;
 const cursor = createAirpointCursorOverlay({ style: "arrow" });
-const apiKey = getAirpointApiKeyFromYourAppConfig(); // optional
+
+const apiKey = import.meta.env.VITE_AIRPOINT_API_KEY; // or process.env.NEXT_PUBLIC_AIRPOINT_API_KEY, etc.
 
 const plugin = createAirpointPlugin({
-  apiKey,
+  apiKey, // optional — enables AirMouse if present
   video,
+  adapter: createAirpointDomAdapter(),
   manifest: {
-    runtime: {
-      assets: {
-        basePath: "/airpoint",
-      },
-    },
+    runtime: { assets: { basePath: "/airpoint" } },
     tracking: {
       config: {
         enableMLClassifier: Boolean(apiKey),
@@ -61,115 +87,63 @@ const plugin = createAirpointPlugin({
       },
     },
     intents: {
-      thumb_middle_pinch: {
-        tap: "primary-select",
-      },
+      thumb_middle_pinch: { tap: "primary-select" },
     },
   },
-  adapter: createAirpointDomAdapter(),
 });
 
-plugin.on("move", (event) => {
-  cursor.move(event.x, event.y, {
-    clicking: event.clicking,
-    grabbing: event.grabbing,
-    hand: event.hand,
-    rightClicking: event.rightClicking,
+plugin.on("move", (e) => {
+  cursor.move(e.x, e.y, {
     space: "normalized",
+    clicking: e.clicking,
+    grabbing: e.grabbing,
+    rightClicking: e.rightClicking,
+    hand: e.hand,
   });
 });
 
 plugin.on("hand_lost", () => cursor.hide());
 
-void plugin.prepare(); // optional: prefetch/decrypt premium assets before the user starts tracking
-
 await plugin.startCamera(video);
 await plugin.start();
 ```
 
-## Public API
+That's it. Show your hand to the camera, the cursor follows your fingertip, and a thumb-to-middle pinch clicks whatever's under it.
 
-Stable v0 integration surface:
+> If `start()` can't find an asset, it throws with the exact missing path and the copy-assets command to run — no silent failures.
 
-- `createAirpointPlugin(options)`
-- `createAirpointCursorOverlay(options)`
-- `createAirpointDomAdapter(options)`
-- `AirpointPlugin`
-- `AirpointPluginManifest`
-- `AirpointHostAdapter`
-- `AirpointIntent`
-- `validateAirpointManifest(manifest)`
-- `normalizeAirpointManifest(manifest)`
-- `resolveAirpointSdkAssetPaths(assets)`
-- `getAirpointSdkRequiredAssets(assets, profile)`
-- `validateAirpointSdkAssets(assets, profile)`
+## Enabling the AirMouse ML model
 
-`@airpoint/sdk/internal` is intentionally unstable. It exists to keep older first-party integrations moving while the plugin API settles.
+Three things need to be true:
 
-Use `plugin.prepare()` at app load to fetch/decrypt premium assets and warm the gesture engine before the user clicks Start. Use `plugin.pause()` for user-facing tracking toggles when you want fast resume. It stops frame processing but keeps the loaded trackers and gesture assets warm. Use `plugin.stop()` only for full teardown.
+1. You have a license key in your env (see [Setup](#setup) step 3).
+2. You pass the key as `apiKey` when creating the plugin.
+3. Your manifest has `tracking.config.enableMLClassifier: true` and `gestureModel: "airmouse-4.3-onnx"`.
 
-## Asset Contract
+The Quick start above already does all three. Without the key, the plugin falls back to the heuristic engine — same API, lower accuracy, and no need to set `enableMLClassifier`.
 
-The browser-facing contract is one `basePath`:
+## How it works
 
-```ts
-runtime: {
-  assets: {
-    basePath: "/airpoint",
-  },
-}
+```
+Webcam ─▶ MediaPipe hand tracker ─▶ Gesture engine ─▶ Plugin events ─▶ Adapter (DOM, your code)
+                                          │
+                              (optional AirMouse classifier, with key)
 ```
 
-`airpoint-sdk-copy-assets` copies the public runtime assets into that tree:
+- **Tracker** — MediaPipe runs on-device and produces 21 hand landmarks per frame.
+- **Gesture engine** — Built-in heuristics or AirMouse turn landmarks into pinches, grabs, scrolls, and a moving cursor.
+- **Manifest** — You declare which gestures map to which intents (`tap`, `dispatch_event`, `focus`, …) and which targets they hit.
+- **Adapter** — The bridge between intents and your app. The bundled DOM adapter turns taps into real DOM clicks.
 
-- `/airpoint/mediapipe/vision_bundle.js`
-- `/airpoint/mediapipe/models/hand_landmarker.task`
-- `/airpoint/mediapipe/wasm/*`
-- `/airpoint/ort/ort-wasm-simd-threaded.{mjs,wasm}`
+Lifecycle:
 
-AirMouse model and normalizer files are not copied by the public asset command. For v0, use one of these modes:
+- `plugin.prepare()` — preload assets and warm the engine before the user starts. Optional.
+- `plugin.pause()` — stop processing but keep everything loaded. Use for in-app toggles.
+- `plugin.stop()` — full teardown.
 
-- Set `tracking.config.enableMLClassifier: false` for the public/basic runtime path.
-- Provide premium AirMouse assets through `apiKey` or the advanced premium bundle options.
-- Explicitly host your own compatible model and normalizer assets under the configured paths.
+## Recipes
 
-If an asset is missing, `plugin.start()` fails with the exact expected paths and the copy-assets command to run.
-
-## Basic Example
-
-```bash
-pnpm install
-pnpm --filter @airpoint/basic-example dev
-```
-
-The example serves a camera-backed cursor and uses the public plugin API only. Copy `examples/basic/.env.example` to `examples/basic/.env.local` and set `VITE_AIRPOINT_API_KEY` to enable the premium AirMouse classifier; without a key the example falls back to the public tracking path.
-
-## DOM Adapter
-
-`createAirpointDomAdapter()` is a framework-agnostic host adapter for normal web apps. It turns tap intents into DOM clicks at the Airpoint cursor position by default, resolves manifest targets for explicit non-pointer actions, and dispatches bubbling `airpoint:intent` plus `airpoint:<intent-id>` custom events so app code can handle custom controls.
-
-```ts
-createAirpointPlugin({
-  apiKey: getAirpointApiKeyFromYourAppConfig(),
-  video,
-  manifest: {
-    tracking: {
-      config: {
-        enableMLClassifier: true,
-        gestureModel: "airmouse-4.3-onnx",
-      },
-    },
-    intents: {
-      thumb_middle_pinch: {
-        tap: "click-under-cursor",
-      },
-    },
-  },
-  adapter: createAirpointDomAdapter(),
-});
-```
-
-For non-click behavior, set an action by intent id or per binding metadata:
+### DOM adapter — non-click actions
 
 ```ts
 createAirpointDomAdapter({
@@ -180,46 +154,30 @@ createAirpointDomAdapter({
 });
 ```
 
-If an intent should always act on its declared manifest target instead of the element under the cursor, opt into that behavior:
+Force intents to act on their declared manifest target instead of whatever's under the cursor:
 
 ```ts
 createAirpointDomAdapter({ pointerTarget: "intent" });
 ```
 
-## Cursor Feedback
+### Cursor click animation
 
-`createAirpointCursorOverlay()` includes a prebuilt click pulse animation. Pass click state from `move` events to animate automatically when Airpoint detects a click:
+`createAirpointCursorOverlay()` ships with a built-in pulse. Forward click state from `move` events and it animates automatically:
 
 ```ts
 const cursor = createAirpointCursorOverlay({
-  clickAnimation: "pulse",
   style: "arrow",
+  clickAnimation: "pulse",
 });
 
-plugin.on("move", (event) => {
-  cursor.move(event.x, event.y, {
-    clicking: event.clicking,
-    hand: event.hand,
-    space: "normalized",
-  });
-});
+plugin.on("intent", () => cursor.pulse()); // for app-defined intents
 ```
 
-For custom gestures or app-defined intents, trigger the same bundled animation manually:
+Use `clickAnimation: "none"` to handle feedback yourself.
 
-```ts
-plugin.on("intent", () => {
-  cursor.pulse();
-});
-```
+### Custom gestures from raw landmarks
 
-Set `clickAnimation: "none"` if you want to use only your own cursor feedback.
-
-## Custom Gestures Without A License Key
-
-The license key only gates premium AirMouse model delivery. Public hand tracking, cursor movement, DOM adaptation, and raw landmark events can run without a key.
-
-For custom heuristic gestures, disable the ML classifier and request raw landmarks:
+Disable the classifier and listen for raw landmarks to build your own pose/dwell/swipe logic:
 
 ```ts
 const plugin = createAirpointPlugin({
@@ -229,56 +187,77 @@ const plugin = createAirpointPlugin({
       emitRawLandmarks: true,
       assets: { basePath: "/airpoint" },
     },
-    tracking: {
-      config: { enableMLClassifier: false },
-    },
+    tracking: { config: { enableMLClassifier: false } },
   },
 });
 
 plugin.on("raw_landmarks", (event) => {
-  // Implement app-specific pinch, dwell, swipe, or pose heuristics here.
+  // your pinch / dwell / swipe logic
 });
 ```
 
-Today, custom heuristics are implemented in app code from `raw_landmarks`, `move`, and DOM adapter events. The built-in manifest `intents` map is driven by SDK pose events, so injecting a custom recognizer directly into that pose pipeline is not yet part of the stable public API.
+> The built-in `intents` map is driven by SDK pose events. Plugging a custom recognizer directly into that pipeline isn't a stable public API yet — for now, custom heuristics live in your app code on top of `raw_landmarks` and `move`.
 
-## Development
+### SSR / Next.js
+
+Camera, DOM, and MediaPipe all need browser APIs. Create the plugin only in client-side code (a `useEffect`, a dynamic import, etc.).
+
+## API reference
+
+Stable v0 surface — won't break in patch/minor releases:
+
+| Export                                          | Purpose                                                                 |
+| ----------------------------------------------- | ----------------------------------------------------------------------- |
+| `createAirpointPlugin(options)`                 | Main entry. Wires a video, manifest, and adapter into a running plugin. |
+| `createAirpointCursorOverlay(options)`          | Prebuilt cursor with click animations.                                  |
+| `createAirpointDomAdapter(options)`             | Framework-agnostic DOM adapter.                                         |
+| `validateAirpointManifest(manifest)`            | Throws on invalid manifests. Useful in tests.                           |
+| `normalizeAirpointManifest(manifest)`           | Fills in defaults; returns the resolved manifest.                       |
+| `resolveAirpointSdkAssetPaths(assets)`          | Resolves the full set of runtime asset URLs.                            |
+| `getAirpointSdkRequiredAssets(assets, profile)` | Lists assets required for a given profile.                              |
+| `validateAirpointSdkAssets(assets, profile)`    | Verifies assets are reachable.                                          |
+
+Types: `AirpointPlugin`, `AirpointPluginManifest`, `AirpointHostAdapter`, `AirpointIntent`.
+
+`@airpoint/sdk/internal` is unstable on purpose. Don't import from it unless you're prepared to track changes.
+
+## About AirMouse
+
+If you've ever tried to write your own gesture detection on top of hand landmarks, you know how it goes: a pinch threshold that works for your hand but not your coworker's, a "click" that fires when someone scratches their nose, distance heuristics that fall apart the moment the hand tilts. It's a lot of trial and error, and the result is usually still flaky.
+
+AirMouse is the model we built so you don't have to do that.
+
+It's a temporal convolutional network (TCN) trained on a hand-collected, hand-labeled dataset of pinches, clicks, grabs, scrolls, and idle motion across many hands, lighting conditions, and camera angles.
+
+| Metric                       | `airmouse-4.3-onnx`                              |
+| ---------------------------- | ------------------------------------------------ |
+| Test accuracy                | 97.73%                                           |
+| Inference (ONNX, in-browser) | ~1–2 ms / frame                                  |
+| Gesture classes              | `idle`, `click`, `right_click`, `grab`, `scroll` |
+| Runtime                      | ONNX Runtime Web (WASM, on-device)               |
+
+Runs locally — no frames leave the user's machine.
+
+Licenses are how the model and the rest of Airpoint stay maintained. Grab one at [airpoint.app](https://airpoint.app), or reach out if you're a student, researcher, or OSS maintainer.
+
+## Contributing
+
+PRs and issues welcome. The repo is a small pnpm workspace.
 
 ```bash
 pnpm install
 pnpm typecheck
 pnpm test
 pnpm build
-pnpm pack --pack-destination .pack
+pnpm dev:example   # runs examples/basic
 ```
 
-Useful scripts:
+The example app lives in [`examples/basic`](./examples/basic). Copy `.env.example` to `.env.local` and set `VITE_AIRPOINT_API_KEY` to try AirMouse; without a key it uses the heuristic engine.
 
-- `pnpm copy-assets` copies SDK runtime assets from this package.
-- `pnpm dev:example` starts the basic example.
-- `pnpm pack:local` creates a local package tarball in `.pack/`.
-
-## Premium AirMouse Delivery
-
-The SDK includes an optional premium flow:
-
-1. Package premium assets into an encrypted bundle.
-2. Sign a customer license authorizing that bundle.
-3. Authenticate the customer in your backend.
-4. Return the license and AES decryption key after account and billing checks.
-5. Start the plugin with `apiKey` or advanced `premium` options.
-
-Helper CLIs:
-
-```bash
-pnpm exec airpoint-sdk-pack-premium-assets --in ./premium-assets --out ./dist/airmouse.bundle.json --write-key ./dist/airmouse.key
-pnpm exec airpoint-sdk-sign-premium-license --claims ./license-claims.json --private-key-jwk ./private-signing-key.jwk --out ./license.json --public-key-out ./public-signing-key.jwk
-```
-
-Browser-delivered model files can still be extracted by determined users. The commercial leverage is account access, licensing, updates, support, and legal terms.
+Questions? `hello@airpoint.app`.
 
 ## License
 
-The SDK is licensed under Apache-2.0. Premium AirMouse model assets are not included in the OSS package and are delivered separately through the optional license/API-key path.
+[Apache-2.0](./LICENSE). MediaPipe and ONNX Runtime browser assets are covered by their upstream licenses — see [NOTICES.md](./NOTICES.md).
 
-Bundled browser runtime assets from MediaPipe and ONNX Runtime are covered by their upstream licenses. See [NOTICES.md](NOTICES.md).
+The AirMouse model is **not** part of the OSS package and is delivered separately under its own terms.
