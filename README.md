@@ -30,7 +30,20 @@
 
 ## Setup
 
-> Using an AI coding agent (Claude Code, Cursor, Copilot, Codex)? Point it at [SKILL.md](./SKILL.md) and it can install and configure Airpoint for you interactively.
+### AI-Assisted Setup (Claude, Codex, Copilot, etc)
+
+**Single prompt install**
+
+```bash
+Help me add touchless controls to my app with this repo:
+https://github.com/marioandf/airpoint-sdk
+```
+
+Done.
+
+> You can also use [SKILL.md](./SKILL.md) to install and configure Airpoint for you interactively.
+
+### Manual Setup
 
 **1. Install the package.**
 
