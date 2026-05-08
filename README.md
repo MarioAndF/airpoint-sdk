@@ -277,6 +277,8 @@ pnpm exec airpoint-sdk-sign-premium-license --claims ./license-claims.json --pri
 
 Browser-delivered model files can still be extracted by determined users. The commercial leverage is account access, licensing, updates, support, and legal terms.
 
-## Release Notes
+## License
 
-Before public npm release, choose the license and finalize the default AirMouse asset stance.
+The SDK is licensed under Apache-2.0. Premium AirMouse model assets are not included in the OSS package and are delivered separately through the optional license/API-key path.
+
+Bundled browser runtime assets from MediaPipe and ONNX Runtime are covered by their upstream licenses. See [NOTICES.md](NOTICES.md).

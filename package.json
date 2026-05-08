@@ -2,6 +2,25 @@
   "name": "@airpoint/sdk",
   "version": "0.1.0",
   "description": "Browser-first Airpoint plugin runtime for touchless computing",
+  "license": "Apache-2.0",
+  "author": "Airpoint",
+  "keywords": [
+    "airpoint",
+    "touchless",
+    "cursor",
+    "hand-tracking",
+    "gesture",
+    "mediapipe",
+    "plugin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/medhuelabs/airpoint-sdk.git"
+  },
+  "homepage": "https://github.com/medhuelabs/airpoint-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/medhuelabs/airpoint-sdk/issues"
+  },
   "packageManager": "pnpm@9.15.4",
   "type": "module",
   "main": "./dist/index.js",
@@ -27,6 +46,7 @@
     "copy-assets": "node scripts/copy-assets.mjs",
     "dev:example": "pnpm --filter @airpoint/basic-example dev",
     "pack:local": "pnpm pack --pack-destination .pack",
+    "prepublishOnly": "pnpm typecheck && pnpm test && pnpm build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -37,8 +57,13 @@
   "files": [
     "dist",
     "assets",
-    "scripts"
+    "scripts",
+    "CHANGELOG.md",
+    "NOTICES.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "workspaces": [
     "examples/*"
   ],
