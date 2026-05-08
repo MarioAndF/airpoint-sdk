@@ -1,6 +1,6 @@
 # SKILL.md — Installing Airpoint SDK
 
-> This file is written for AI coding agents (Claude Code, Cursor, Copilot, Codex, etc.) integrating `@airpoint/sdk` into a user's web app.
+> This file is written for AI coding agents (Claude Code, Cursor, Copilot, Codex, etc.) integrating `airpoint-sdk` into a user's web app.
 > Humans: this is a deterministic install script the agent will follow. The full reference docs are in [README.md](./README.md).
 
 ## When to use this skill
@@ -8,7 +8,7 @@
 Trigger this skill when the user asks to:
 
 - "Add Airpoint", "add hand tracking", "add touchless control", "add gesture control" to a web app.
-- "Install @airpoint/sdk", "set up Airpoint".
+- "Install airpoint-sdk", "set up Airpoint".
 - Add a hand-controlled cursor or gesture-triggered actions to an existing page.
 
 If the user is asking _what_ Airpoint is (not how to install), point them at the README instead.
@@ -73,9 +73,9 @@ Do these steps in order. Report each one as you go.
 ### 1. Install the package
 
 ```bash
-<pm> add @airpoint/sdk           # pnpm / yarn / bun
+<pm> add airpoint-sdk            # pnpm / yarn / bun
 # or:
-npm install @airpoint/sdk
+npm install airpoint-sdk
 ```
 
 ### 2. Copy runtime assets
@@ -131,11 +131,11 @@ import {
   createAirpointPlugin,
   createAirpointDomAdapter,
   // + createAirpointCursorOverlay if Q3 = cursor
-} from "@airpoint/sdk";
+} from "airpoint-sdk";
 
 const apiKey = import.meta.env.VITE_AIRPOINT_API_KEY;
 
-export async function startAirpoint(video: HTMLVideoElement) {
+export function createPreparedAirpoint(video: HTMLVideoElement) {
   // [cursor block, if Q3 = cursor]
 
   const plugin = createAirpointPlugin({
@@ -160,9 +160,26 @@ export async function startAirpoint(video: HTMLVideoElement) {
   // [scroll handler, if any gesture from Q4 = "Scroll the page"]
   // [intent handler, for "Dispatch event", "Focus element", or "Explain" actions from Q4]
 
-  await plugin.startCamera(video);
-  await plugin.start();
-  return plugin;
+  // Recommended: warm assets and the gesture engine at app startup so the
+  // user's first "enable tracking" click only has to open camera + start frames.
+  void plugin.prepare().catch((error) => {
+    console.warn("Airpoint prepare failed:", error);
+  });
+
+  return {
+    plugin,
+    async enable() {
+      await plugin.startCamera(video);
+      await plugin.start();
+    },
+    disable() {
+      plugin.pause();
+      plugin.stopCamera();
+    },
+    destroy() {
+      plugin.stop();
+    },
+  };
 }
 ```
 

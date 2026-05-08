@@ -119,8 +119,24 @@ plugin.on("move", (e) => {
 
 plugin.on("hand_lost", () => cursor.hide());
 
-await plugin.startCamera(video);
-await plugin.start();
+// Recommended: warm assets and the gesture engine as soon as your app loads.
+// This keeps the user's first "enable tracking" click fast.
+void plugin.prepare().catch((error) => {
+  console.warn("Airpoint prepare failed:", error);
+});
+
+async function enableAirpoint() {
+  await plugin.startCamera(video);
+  await plugin.start();
+}
+
+function disableAirpoint() {
+  plugin.pause(); // keep loaded models warm for the next enable
+  plugin.stopCamera();
+  cursor.hide();
+}
+
+// Wire enableAirpoint/disableAirpoint to your app's touchless toggle.
 ```
 
 That's it. Show your hand to the camera, the cursor follows your fingertip, and a thumb-to-middle pinch clicks whatever's under it.
@@ -152,9 +168,10 @@ Webcam ─▶ MediaPipe hand tracker ─▶ Gesture engine ─▶ Plugin events 
 
 Lifecycle:
 
-- `plugin.prepare()` — preload assets and warm the engine before the user starts. Optional.
-- `plugin.pause()` — stop processing but keep everything loaded. Use for in-app toggles.
-- `plugin.stop()` — full teardown.
+- `plugin.prepare()` — preload assets and warm the engine before the user starts. Recommended on app startup.
+- `plugin.startCamera(video)` + `plugin.start()` — use when the user enables touchless tracking.
+- `plugin.pause()` + `plugin.stopCamera()` — use for in-app toggles; processing and camera stop, but loaded models stay warm.
+- `plugin.stop()` — full teardown. Reserve it for unmount, logout, or permanent disable because it unloads warmed state.
 
 ## Recipes
 
