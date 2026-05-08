@@ -28,20 +28,43 @@ Run these checks silently. Only mention them to the user if something fails.
 
 ## Interview the user
 
-Ask these questions **one at a time**, in order. Stop if the user says no to Q1. Skip later questions when an earlier answer makes them irrelevant.
+Ask these questions **one at a time**, in order. Stop if the user says no to Q1. Use the exact wording. Suggest the default in brackets so users can just hit enter.
 
 1. **Install Airpoint hand tracking in this app?** _(yes / no)_
 2. **Do you have an AirMouse license key?** _(yes, paste it / no, I want to build my own gestures from raw landmarks / no, get me a key)_
    - **Yes** — unlocks the AirMouse ML model. Ask **"Paste the key"** (stored in `.env*`, never committed).
-   - **No, raw landmarks** — the SDK will emit `raw_landmarks` events; the user writes their own gesture detection. Skip Q4–Q5.
-   - **No, get me a key** — point them at [airpoint.app](https://airpoint.app) and stop. They can re-run this skill once they have one.
-3. **Show a cursor that follows the user's index finger?** _(yes / no)_
-   - If yes: **Cursor style?** _(arrow / dot / ring)_ — default `arrow`.
-4. **Click gesture?** _(thumb–index pinch / thumb–middle pinch / none)_ — default thumb–middle pinch.
-5. **Scroll gesture?** _(thumb–ring pinch / none)_ — default thumb–ring pinch. Recommended; gives users a natural way to scroll the page with their hand.
-6. **Where should the integration live?** _(suggest a path based on framework, e.g. `src/airpoint.ts` for Vite, `app/airpoint.ts` for Next.js App Router)_
+   - **No, raw landmarks** — the SDK will emit `raw_landmarks` events; the user writes their own gesture detection. Skip Q3–Q4.
+   - **No, get me a key** — point them at [airpoint.app](https://airpoint.app) and stop.
+3. **What would you like to do with hand movement?** _(default: move a cursor)_
+   - **Move a cursor** _(default)_ — index finger drives an on-screen cursor. Then ask: **Cursor style?** _(arrow / dot / ring — default arrow)_.
+   - **Nothing** — no cursor; the user only cares about discrete gestures.
+   - **Explain** _(open field)_ — the user describes the behavior. You implement it on the `move` event. If the description requires APIs Airpoint doesn't expose, say so and offer the closest equivalent (a DOM event, a callback stub, or a `// TODO` with a clear comment) instead of inventing methods.
+4. **Would you like to bind a function to a gesture?** _(yes / no — default yes, with a sensible starter)_
+   - If **no**: skip to Q5.
+   - If **yes**: enter the gesture loop below. Repeat until the user says "done" or "no more". Cap at 5 iterations to avoid runaway interviews.
 
-After Q6, summarize the choices in 3–5 bullets and ask **"Proceed?"** before writing any files.
+   **Gesture loop:**
+
+   a. **Which gesture?** Show the list:
+   - `thumb_index_pinch` — thumb touches index fingertip
+   - `thumb_middle_pinch` — thumb touches middle fingertip
+   - `thumb_ring_pinch` — thumb touches ring fingertip _(commonly used for scroll)_
+   - `thumb_pinky_pinch` — thumb touches pinky fingertip
+   - `thumb_pinky_base` — thumb touches the base of the pinky
+
+   b. **What would you like `<gesture>` to do?**
+   - **Click** _(default for `thumb_middle_pinch` if user has no preference)_ — click whatever is under the cursor.
+   - **Scroll the page** _(only offered for `thumb_ring_pinch`)_ — hand motion while pinching scrolls the window.
+   - **Dispatch a custom DOM event** — ask for the event name. Other code can listen with `window.addEventListener("<name>", …)`.
+   - **Focus an element** — ask for a CSS selector.
+   - **Nothing** — skip this gesture.
+   - **Explain** _(open field)_ — implement on `plugin.on("intent", …)` filtered by gesture id. Same rule as Q3: if it can't be done with the public API, leave a clearly-commented `// TODO` instead of inventing.
+
+   c. **First-iteration default suggestion:** if the user said "yes" to Q4 without picking a gesture, propose `thumb_middle_pinch → click` and `thumb_ring_pinch → scroll the page` as a starter pair, and ask "Use these or pick your own?"
+
+5. **Where should the integration live?** Suggest a path based on framework, e.g. `src/airpoint.ts` for Vite, `app/airpoint.ts` for Next.js App Router.
+
+After Q5, summarize the full plan in 4–6 bullets (cursor on/off, gesture bindings, file path) and ask **"Proceed?"** before writing any files.
 
 ## Apply the changes
 
@@ -98,25 +121,22 @@ Also add a matching entry (with empty value) to `.env.example`.
 
 ### 4. Write the integration file
 
-Create the file the user agreed on in Q6. Template:
+Create the file the user agreed on in Q5. Build it up from these blocks based on Q3/Q4 answers — only include what's needed.
+
+**Base scaffold:**
 
 ```ts
 // src/airpoint.ts (Vite example — adjust import.meta.env reads per framework)
 import {
   createAirpointPlugin,
-  createAirpointCursorOverlay,
   createAirpointDomAdapter,
+  // + createAirpointCursorOverlay if Q3 = cursor
 } from "@airpoint/sdk";
 
 const apiKey = import.meta.env.VITE_AIRPOINT_API_KEY;
 
 export async function startAirpoint(video: HTMLVideoElement) {
-  /* CURSOR_BLOCK */
-  const cursor = createAirpointCursorOverlay({
-    style: "arrow", // ← Q3 cursor style
-    clickAnimation: "pulse",
-  });
-  /* /CURSOR_BLOCK */
+  // [cursor block, if Q3 = cursor]
 
   const plugin = createAirpointPlugin({
     apiKey, // omit if Q2 = "raw landmarks"
@@ -126,34 +146,19 @@ export async function startAirpoint(video: HTMLVideoElement) {
       runtime: { assets: { basePath: "/airpoint" } },
       tracking: {
         config: {
-          enableMLClassifier: Boolean(apiKey), // true when key is present
+          enableMLClassifier: Boolean(apiKey),
           gestureModel: "airmouse-4.3-onnx",
         },
       },
       intents: {
-        // ← Q4: click gesture
-        thumb_middle_pinch: { tap: "primary-select" },
+        // [one entry per gesture from Q4 with action = "Click"]
       },
     },
   });
 
-  /* CURSOR_HANDLER */
-  plugin.on("move", (e) => {
-    cursor.move(e.x, e.y, {
-      space: "normalized",
-      clicking: e.clicking,
-      hand: e.hand,
-    });
-  });
-  plugin.on("hand_lost", () => cursor.hide());
-  /* /CURSOR_HANDLER */
-
-  /* SCROLL_HANDLER */
-  // ← Q5: thumb–ring pinch + hand motion = page scroll
-  plugin.on("scroll", (e) => {
-    window.scrollBy({ left: e.deltaX ?? 0, top: e.deltaY ?? 0 });
-  });
-  /* /SCROLL_HANDLER */
+  // [cursor handler, if Q3 = cursor]
+  // [scroll handler, if any gesture from Q4 = "Scroll the page"]
+  // [intent handler, for "Dispatch event", "Focus element", or "Explain" actions from Q4]
 
   await plugin.startCamera(video);
   await plugin.start();
@@ -161,15 +166,98 @@ export async function startAirpoint(video: HTMLVideoElement) {
 }
 ```
 
+**Block: cursor (Q3 = "Move a cursor")**
+
+```ts
+const cursor = createAirpointCursorOverlay({
+  style: "arrow", // ← user's choice from Q3
+  clickAnimation: "pulse",
+});
+```
+
+```ts
+plugin.on("move", (e) => {
+  cursor.move(e.x, e.y, {
+    space: "normalized",
+    clicking: e.clicking,
+    hand: e.hand,
+  });
+});
+plugin.on("hand_lost", () => cursor.hide());
+```
+
+**Block: cursor with custom move behavior (Q3 = "Explain")**
+
+Instead of `createAirpointCursorOverlay`, write a `plugin.on("move", …)` that does what the user described. If you can't map their description to public APIs, leave a clearly-marked TODO:
+
+```ts
+plugin.on("move", (e) => {
+  // TODO: <user's description goes here>
+  // e.x, e.y are normalized 0–1 coordinates; e.hand is "left" | "right".
+});
+```
+
+**Block: gesture → click (Q4 entry, action = "Click")**
+
+```ts
+intents: {
+  thumb_middle_pinch: { tap: "primary-select" },
+}
+```
+
+The DOM adapter will fire a real DOM click at the cursor position when this gesture happens.
+
+**Block: gesture → scroll (Q4 entry, action = "Scroll the page", gesture = `thumb_ring_pinch`)**
+
+```ts
+plugin.on("scroll", (e) => {
+  window.scrollBy({ left: e.deltaX ?? 0, top: e.deltaY ?? 0 });
+});
+```
+
+**Block: gesture → custom DOM event (Q4 entry, action = "Dispatch event")**
+
+```ts
+intents: {
+  thumb_pinky_base: { dispatch_event: "dismiss-modal" }, // ← user-chosen event name
+}
+```
+
+App code listens with `window.addEventListener("dismiss-modal", …)`.
+
+**Block: gesture → focus element (Q4 entry, action = "Focus element")**
+
+```ts
+intents: {
+  thumb_pinky_pinch: { focus: "#search-input" }, // ← user-chosen selector
+}
+```
+
+**Block: gesture → "Explain" (Q4 entry, action = open field)**
+
+Map to a generic intent + handler. Leave a TODO with the user's description verbatim:
+
+```ts
+intents: {
+  thumb_index_pinch: { dispatch_event: "airpoint:custom-1" },
+}
+
+plugin.on("intent", (e) => {
+  if (e.intentId === "airpoint:custom-1") {
+    // TODO: <user's description goes here>
+  }
+});
+```
+
 **Code generation rules:**
 
-- If Q3 = no cursor: drop the `CURSOR_BLOCK` and `CURSOR_HANDLER` regions, drop the `createAirpointCursorOverlay` import.
-- If Q4 = "none": omit the `intents` entry for it. Never leave commented-out placeholders in the final file — delete the lines.
-- If Q5 = "none": drop the `SCROLL_HANDLER` region entirely.
-- If Q2 = "raw landmarks" (no key): omit `apiKey`, set `enableMLClassifier: false`, set `runtime.emitRawLandmarks: true`, remove the `gestureModel` line, drop the `intents` map and the `SCROLL_HANDLER` region (built-in gestures and scroll events need the ML model), and add a `plugin.on("raw_landmarks", (e) => { /* TODO: your gesture logic */ })` handler. Skip step 3 (env config) and skip Q4–Q5.
-- Map gesture choices to manifest keys: thumb–index → `thumb_index_pinch`, thumb–middle → `thumb_middle_pinch`, thumb–ring → `thumb_ring_pinch`.
+- If Q2 = "raw landmarks" (no key): omit `apiKey`, set `enableMLClassifier: false`, set `runtime.emitRawLandmarks: true`, remove the `gestureModel` line, drop the `intents` map and any gesture handlers (built-in gesture events need the ML model), and add a `plugin.on("raw_landmarks", (e) => { /* TODO: your gesture logic */ })` handler. Skip step 3 (env config) and skip Q3–Q4.
+- If Q3 = "Nothing": drop the cursor blocks and the `createAirpointCursorOverlay` import.
+- If Q4 produced no gestures: drop the `intents` map (leave it as `intents: {}` or omit it).
+- Map gesture choices to manifest keys exactly as listed (`thumb_index_pinch`, `thumb_middle_pinch`, `thumb_ring_pinch`, `thumb_pinky_pinch`, `thumb_pinky_base`).
 - Adjust the env read for the framework: Vite uses `import.meta.env.VITE_*`, Next.js uses `process.env.NEXT_PUBLIC_*`, SvelteKit uses `import { PUBLIC_AIRPOINT_API_KEY } from "$env/static/public"`, Astro uses `import.meta.env.PUBLIC_*`.
 - For Next.js, the file must run client-side: add `"use client"` at the top and call `startAirpoint` from a `useEffect`.
+- Never invent SDK methods. If a user's "Explain" answer needs something the SDK doesn't expose, leave a `// TODO` and tell the user in your summary.
 
 ### 5. Wire it into a page
 
